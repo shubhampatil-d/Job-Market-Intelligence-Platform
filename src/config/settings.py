@@ -6,10 +6,13 @@ Loads all environment variables required by the project.
 
 import os
 from dotenv import load_dotenv
+from pathlib import Path
 
-# Load .env file
-load_dotenv()
+# Project root
+BASE_DIR = Path(__file__).resolve().parents[2]
 
+# Load environment variables
+load_dotenv(BASE_DIR / ".env")
 
 class Settings:
     """
@@ -25,9 +28,16 @@ class Settings:
 
     REQUEST_TIMEOUT = 30
 
+    MAX_RETRIES = 3
+
     DEFAULT_LOCATION = "India"
 
-    RAW_DATA_PATH = "data/raw"
+    RAW_DATA_PATH = BASE_DIR / "data" / "raw"
+
+    PROCESSED_DATA_PATH = BASE_DIR / "data" / "processed"
+
+    ARCHIVE_DATA_PATH = BASE_DIR / "data" / "archive"
+
 
 
 settings = Settings()

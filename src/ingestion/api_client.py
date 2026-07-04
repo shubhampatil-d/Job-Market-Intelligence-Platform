@@ -8,19 +8,27 @@ Author: Shubham Patil
 Project: Job Market Intelligence Platform
 """
 
+"""
+Reusable HTTP API Client
+"""
+
 from typing import Dict, Optional
 
 import requests
 
+from requests.exceptions import RequestException
+
 from src.config.settings import settings
+from src.ingestion.logger import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class APIClient:
-    """
-    Generic HTTP client for external APIs.
-    """
 
     def __init__(self):
+
         self.timeout = settings.REQUEST_TIMEOUT
 
     def get(
@@ -29,33 +37,32 @@ class APIClient:
         headers: Dict,
         params: Optional[Dict] = None,
     ) -> Dict:
-        """
-        Execute an HTTP GET request.
 
-        Parameters
-        ----------
-        url : str
-            Endpoint URL.
+        try:
 
-        headers : Dict
-            HTTP headers.
+            logger.info("Sending GET request to %s", url)
 
-        params : Dict
-            Query parameters.
+            response = requests.get(
+                url=url,
+                headers=headers,
+                params=params,
+                timeout=self.timeout,
+            )
 
-        Returns
-        -------
-        Dict
-            JSON response from API.
-        """
+            response.raise_for_status()
 
-        response = requests.get(
-            url=url,
-            headers=headers,
-            params=params,
-            timeout=self.timeout,
-        )
+            logger.info(
+                "Request completed successfully (%s)",
+                response.status_code,
+            )
 
-        response.raise_for_status()
+            return response.json()
 
-        return response.json()
+        except RequestException as exc:
+
+            logger.exception(
+                "HTTP request failed: %s",
+                exc,
+            )
+
+            raise
