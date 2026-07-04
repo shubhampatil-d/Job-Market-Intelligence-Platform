@@ -1,0 +1,21 @@
+project:
+  name: Job Market Intelligence Platform
+  version: 1.0.0
+
+api:
+  provider: jsearch
+  timeout: 30
+  max_retries: 3
+
+storage:
+  raw_data_path: data/raw
+  processed_data_path: data/processed
+  archive_path: data/archive
+
+logging:
+  level: INFO
+  log_directory: logs
+
+pipeline:
+  save_raw_data: true
+  incremental_load: true
