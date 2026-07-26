@@ -10,7 +10,6 @@ from src.config.settings import settings
 from src.ingestion.api_client import APIClient
 from src.ingestion.providers.base_provider import BaseJobProvider
 
-
 class JSearchProvider(BaseJobProvider):
 
     BASE_URL = "https://jsearch.p.rapidapi.com/search-v2"
@@ -44,4 +43,4 @@ class JSearchProvider(BaseJobProvider):
             params=params,
         )
 
-        return response.get("data", [])
+        return response.get("data",{}).get("jobs",[])
