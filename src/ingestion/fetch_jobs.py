@@ -12,6 +12,7 @@ from src.ingestion.providers.jsearch_provider import JSearchProvider
 from src.ingestion.save_raw import RawDataSaver
 from src.validation.validator import JobValidator
 from pathlib import Path
+from src.state.state_manager import PipelineStateManager
 
 logger = get_logger(__name__)
 
@@ -26,13 +27,19 @@ class JobIngestionPipeline:
         self.provider = JSearchProvider()
         self.validator= JobValidator()
         self.saver = RawDataSaver()
-        
+        self.state_manager = PipelineStateManager()        
 
 
     def run(
         self,
         keyword: str,
     ) -> Dict:
+
+        state = self.state_manager.load()
+
+        logger.info(
+            "Previous pipeline state loaded."
+        )
 
         logger.info("Starting ingestion pipeline")
 
@@ -57,6 +64,14 @@ class JobIngestionPipeline:
         )
 
         logger.info("Pipeline completed successfully")
+
+        self.state_manager.save(
+
+            cursor=None,
+
+            records_processed=len(valid_jobs),
+
+        )
 
         return metadata
 
