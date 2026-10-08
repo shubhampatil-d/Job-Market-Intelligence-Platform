@@ -29,3 +29,11 @@ Thumbs.db
 
 # Mypy
 .mypy_cache/
+
+# Pipeline generated data
+data/raw/
+data/processed/
+data/monitoring/
+
+# Pipeline state
+state/pipeline_state.json
