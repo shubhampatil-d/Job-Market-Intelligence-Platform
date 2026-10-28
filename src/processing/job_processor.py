@@ -640,16 +640,25 @@ class JobProcessor:
             "employer_name",
         ]
 
-        existing_required = [
+        missing_columns = [
             column
             for column in required_columns
-            if column in dataframe.columns
+            if column not in dataframe.columns
         ]
 
+        if missing_columns:
+            raise ValueError(
+                f"Missing required columns: {missing_columns}"
+            )
+
         dataframe = dataframe.dropna(
-            subset=existing_required
+            subset=required_columns
         )
 
+        for column in required_columns:
+            dataframe = dataframe[
+                dataframe[column].astype("string").str.strip().ne("")
+            ]
         return dataframe
 
     # =========================================================
