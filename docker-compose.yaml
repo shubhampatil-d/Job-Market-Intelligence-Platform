@@ -1,5 +1,9 @@
 x-airflow-common: &airflow-common
-  image: apache/airflow:2.10.0
+  image: job-market-airflow:2.10.0
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow
+  working_dir: /opt/airflow/project
 
   env_file:
     - .env
@@ -8,11 +12,20 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/job_pipeline
     AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    PYTHONPATH: /opt/airflow/project
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
 
   volumes:
     - ./airflow/dags:/opt/airflow/dags
     - ./airflow/logs:/opt/airflow/logs
     - ./airflow/plugins:/opt/airflow/plugins
+    - ./src:/opt/airflow/project/src
+    - ./data:/opt/airflow/project/data
+    - ./state:/opt/airflow/project/state
+    - ./process_jobs.py:/opt/airflow/project/process_jobs.py
+    - ./load_warehouse.py:/opt/airflow/project/load_warehouse.py
+    - ./.env:/opt/airflow/project/.env:ro
 
   depends_on:
     postgres:
@@ -55,7 +68,7 @@ services:
       --lastname Patil \
       --role Admin \
       --email admin@example.com \
-      --password admin
+      --password "$${AIRFLOW_ADMIN_PASSWORD}"
       "
 
   airflow-webserver:
