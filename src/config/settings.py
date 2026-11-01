@@ -38,6 +38,15 @@ class Settings:
 
     ARCHIVE_DATA_PATH = BASE_DIR / "data" / "archive"
 
+    # AWS S3 raw-data archive (optional)
+    S3_RAW_BUCKET = os.getenv("S3_RAW_BUCKET")
+
+    S3_RAW_PREFIX = os.getenv("S3_RAW_PREFIX", "raw/jobs")
+
+    S3_PROCESSED_PREFIX = os.getenv(
+        "S3_PROCESSED_PREFIX", "processed/jobs"
+    )
+    AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
 
 
 settings = Settings()

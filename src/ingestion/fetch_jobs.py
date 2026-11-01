@@ -47,9 +47,10 @@ class JobIngestionPipeline:
 
         jobs = self._fetch_jobs(keyword)
 
-        valid_jobs = self._validate_jobs(jobs)
+        # Archive the original API records before validation.
+        file_path = self._archive_jobs(jobs)
 
-        file_path = self._archive_jobs(valid_jobs)
+        valid_jobs = self._validate_jobs(jobs)
 
         execution_time = (
         datetime.now() - start_time

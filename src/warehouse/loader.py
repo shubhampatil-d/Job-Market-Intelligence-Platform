@@ -12,8 +12,11 @@ logger = logging.getLogger(__name__)
 
 class JobWarehouseLoader:
 
-    def __init__(self):
-        self.engine = get_engine()
+    def __init__(self, engine=None, session_factory=None):
+        self.engine = engine if engine is not None else get_engine()
+        self.session_factory = (
+            session_factory if session_factory is not None else get_session
+        )
 
     def initialize_database(self):
         Base.metadata.create_all(self.engine)
@@ -41,7 +44,7 @@ class JobWarehouseLoader:
                 "records_skipped": 0,
             }
 
-        session = get_session()
+        session = self.session_factory()
 
         inserted = 0
         updated = 0

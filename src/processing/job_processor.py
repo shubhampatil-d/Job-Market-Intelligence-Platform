@@ -10,7 +10,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
-
+from src.state.processing_state_manager import ProcessingStateManager
+import boto3
 import pandas as pd
 
 from src.config.settings import settings
@@ -45,6 +46,13 @@ class JobProcessor:
             settings.PROCESSED_DATA_PATH
         )
 
+        self.state_manager = ProcessingStateManager()
+
+        self.s3_bucket = settings.S3_RAW_BUCKET
+        self.s3_prefix = settings.S3_PROCESSED_PREFIX.strip("/")
+        self.aws_region = settings.AWS_REGION
+        self._s3_client = None
+
         self.processed_path.mkdir(
             parents=True,
             exist_ok=True,
@@ -54,92 +62,55 @@ class JobProcessor:
     # MAIN PIPELINE
     # =========================================================
 
-    def run(self) -> Tuple[Path, Dict[str, int]]:
 
-        logger.info(
-            "Starting job processing"
-        )
+    def run(self) -> Tuple[Path | None, Dict[str, int]]:
+        logger.info("Starting job processing")
 
-        raw_files = self._find_raw_files()
+        all_raw_files = self._find_raw_files()
 
-        if not raw_files:
-
+        if not all_raw_files:
             raise FileNotFoundError(
                 f"No raw JSON files found in {self.raw_path}"
             )
 
-        logger.info(
-            "Found %d raw JSON files",
-            len(raw_files),
-        )
+        raw_files = self.state_manager.filter_unprocessed(all_raw_files)
 
-        raw_records = self._load_raw_files(
-            raw_files
-        )
+        if not raw_files:
+            logger.info("No new raw files to process")
+            return None, {
+                "records_fetched": 0,
+                "records_valid": 0,
+                "records_rejected": 0,
+                "records_processed": 0,
+                "records_failed": 0,
+                "duplicates_removed": 0,
+            }
 
+        logger.info("Found %d new raw files", len(raw_files))
+
+        raw_records = self._load_raw_files(raw_files)
         records_fetched = len(raw_records)
 
-        logger.info(
-            "Loaded %d raw job records",
-            records_fetched,
-        )
-
-        # -----------------------------------------------------
-        # Normalize
-        # -----------------------------------------------------
-
         normalized_records = [
-            self._normalize_job(job)
-            for job in raw_records
+            self._normalize_job(job) for job in raw_records
         ]
-
-        dataframe = pd.DataFrame(
-            normalized_records
-        )
-
-        # -----------------------------------------------------
-        # Clean
-        # -----------------------------------------------------
+        dataframe = pd.DataFrame(normalized_records)
 
         before_validation = len(dataframe)
-
-        dataframe = self._clean_dataframe(
-            dataframe
-        )
-
+        dataframe = self._clean_dataframe(dataframe)
         records_valid = len(dataframe)
-
-        records_rejected = (
-            before_validation
-            - records_valid
-        )
-
-        # -----------------------------------------------------
-        # Deduplicate
-        # -----------------------------------------------------
+        records_rejected = before_validation - records_valid
 
         before_deduplication = len(dataframe)
-
-        dataframe = self._deduplicate(
-            dataframe
-        )
-
-        duplicates_removed = (
-            before_deduplication
-            - len(dataframe)
-        )
-
+        dataframe = self._deduplicate(dataframe)
+        duplicates_removed = before_deduplication - len(dataframe)
         records_processed = len(dataframe)
 
-        # -----------------------------------------------------
-        # Save
-        # -----------------------------------------------------
+        # Save locally and upload to S3 before advancing the checkpoint.
+        output_path = self._save_processed_data(dataframe)
 
-        output_path = (
-            self._save_processed_data(
-                dataframe
-            )
-        )
+        # Mark inputs complete only after output storage succeeds.
+        self.state_manager.mark_processed(raw_files)
 
         metrics = {
             "records_fetched": records_fetched,
@@ -151,12 +122,13 @@ class JobProcessor:
         }
 
         logger.info(
-            "Processing completed successfully. "
-            "Processed %d jobs.",
+            "Processing completed successfully. Processed %d jobs.",
             records_processed,
         )
-
         return output_path, metrics
+
+
+
 
     # =========================================================
     # FIND RAW FILES
@@ -308,21 +280,13 @@ class JobProcessor:
                         file_path,
                     )
 
-            except json.JSONDecodeError as exc:
+            except json.JSONDecodeError:
+                logger.exception("Invalid JSON file %s", file_path)
+                raise
 
-                logger.error(
-                    "Invalid JSON file %s: %s",
-                    file_path,
-                    exc,
-                )
-
-            except OSError as exc:
-
-                logger.error(
-                    "Unable to read %s: %s",
-                    file_path,
-                    exc,
-                )
+            except OSError:
+                logger.exception("Unable to read %s", file_path)
+                raise
 
         return records
 
@@ -695,7 +659,6 @@ class JobProcessor:
         self,
         dataframe: pd.DataFrame,
     ) -> Path:
-
         now = datetime.now()
 
         output_directory = (
@@ -715,20 +678,61 @@ class JobProcessor:
             f"{now.strftime('%Y%m%d_%H%M%S')}.csv"
         )
 
-        output_path = (
-            output_directory
-            / filename
-        )
+        output_path = output_directory / filename
 
-        dataframe.to_csv(
-            output_path,
-            index=False,
-        )
+        # Always preserve the local processed file.
+        dataframe.to_csv(output_path, index=False)
 
         logger.info(
-            "Processed data saved to %s",
+            "Processed data saved locally to %s",
             output_path,
         )
+
+        # S3 archival is optional when no bucket is configured.
+        if self.s3_bucket:
+            key = "/".join(
+                part
+                for part in (
+                    self.s3_prefix,
+                    str(now.year),
+                    f"{now.month:02d}",
+                    f"{now.day:02d}",
+                    filename,
+                )
+                if part
+            )
+
+            if self._s3_client is None:
+                self._s3_client = boto3.client(
+                    "s3",
+                    region_name=self.aws_region,
+                )
+
+            logger.info(
+                "Uploading processed data to s3://%s/%s",
+                self.s3_bucket,
+                key,
+            )
+
+            try:
+                self._s3_client.upload_file(
+                    str(output_path),
+                    self.s3_bucket,
+                    key,
+                    ExtraArgs={"ContentType": "text/csv"},
+                )
+            except Exception:
+                logger.exception(
+                    "S3 upload failed for processed file %s",
+                    output_path,
+                )
+                raise
+
+            logger.info(
+                "Processed data archived to s3://%s/%s",
+                self.s3_bucket,
+                key,
+            )
 
         return output_path
 
